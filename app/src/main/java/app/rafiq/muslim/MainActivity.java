@@ -7,6 +7,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
@@ -22,13 +28,37 @@ import android.webkit.WebViewClient;
 
 import androidx.core.app.NotificationManagerCompat;
 import androidx.webkit.WebViewAssetLoader;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /** One app: WebView hosting the bundled web UI (assets/www) + native adhan bridge (window.AndroidNative). */
 public class MainActivity extends Activity {
+    void scheduleUpdateCheck() {
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build();
+
+        PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
+                UpdateWorker.class,
+                15,
+                java.util.concurrent.TimeUnit.MINUTES
+        ).setConstraints(constraints).build();
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "rafiq_muslim_update_check",
+                ExistingPeriodicWorkPolicy.KEEP,
+                request
+        );
+    }
+
     static final String HOST = "appassets.androidplatform.net";
+    static final String UPDATE_URL = "https://raw.githubusercontent.com/RafiqMuslimApp/RafiqMuslim/main/update.json";
     static final int RQ_NOTIF = 11, RQ_LOC = 12;
     private WebView web;
     private String pendingNotifId;
@@ -39,6 +69,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         AdhanService.channels(this);
+        scheduleUpdateCheck();
         web = new WebView(this);
         setContentView(web);
         WebSettings s = web.getSettings();
@@ -51,6 +82,7 @@ public class MainActivity extends Activity {
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) { return loader.shouldInterceptRequest(r.getUrl()); }
+            @Override public void onPageFinished(WebView v, String url) { super.onPageFinished(v, url); checkForUpdate(); }
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 if (HOST.equals(r.getUrl().getHost())) return false;
                 try { startActivity(new Intent(Intent.ACTION_VIEW, r.getUrl())); } catch (Exception ignored) { }
@@ -132,4 +164,56 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) { }
         return o;
     }
+
+    void checkForUpdate() {
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                URL u = new URL(UPDATE_URL);
+                c = (HttpURLConnection) u.openConnection();
+                c.setRequestMethod("GET");
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(8000);
+                c.setUseCaches(false);
+
+                if (c.getResponseCode() != HttpURLConnection.HTTP_OK) return;
+
+                BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"));
+                StringBuilder b = new StringBuilder();
+                String line;
+                while ((line = r.readLine()) != null) b.append(line);
+                r.close();
+
+                JSONObject x = new JSONObject(b.toString());
+                long remoteCode = x.optLong("versionCode", 0);
+                String remoteName = x.optString("versionName", "");
+                String message = x.optString("message", "يتوفر إصدار جديد من رفيق المسلم");
+                String telegram = x.optString("telegram", "https://t.me/Rafiq_Almusilm");
+
+                long currentCode;
+                if (Build.VERSION.SDK_INT >= 28) {
+                    currentCode = getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
+                } else {
+                    currentCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+                }
+
+                if (remoteCode > currentCode) {
+                    runOnUiThread(() -> showUpdateDialog(remoteName, message, telegram));
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
+    }
+
+    void showUpdateDialog(String versionName, String message, String telegram) {
+        String js = "window.showUpdateDialog && window.showUpdateDialog("
+                + JSONObject.quote(versionName) + ","
+                + JSONObject.quote(message) + ","
+                + JSONObject.quote(telegram) + ")";
+        web.evaluateJavascript(js, null);
+    }
+
+
 }
