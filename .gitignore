@@ -1,0 +1,10 @@
+rafiq-muslim-release.jks
+keystore.properties
+.gradle/
+build/
+**/build/
+local.properties
+gradle.properties
+*.jks
+*.keystore
+keystore.properties
