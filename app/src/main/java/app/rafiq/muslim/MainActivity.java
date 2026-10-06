@@ -25,6 +25,14 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.content.pm.PackageInfo;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 
 import androidx.core.app.NotificationManagerCompat;
 import androidx.webkit.WebViewAssetLoader;
@@ -82,13 +90,17 @@ public class MainActivity extends Activity {
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) { return loader.shouldInterceptRequest(r.getUrl()); }
-            @Override public void onPageFinished(WebView v, String url) { super.onPageFinished(v, url); checkForUpdate(); }
+            @Override public void onPageFinished(WebView v, String url) {
+    super.onPageFinished(v, url);
+    setAppVersion();
+    v.postDelayed(() -> checkForUpdate(), 1000);
+}
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
-                if (HOST.equals(r.getUrl().getHost())) return false;
-                try { startActivity(new Intent(Intent.ACTION_VIEW, r.getUrl())); } catch (Exception ignored) { }
-                return true;
-            }
-        });
+                    if (HOST.equals(r.getUrl().getHost())) return false;
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, r.getUrl())); } catch (Exception ignored) { }
+                    return true;
+                }
+            });
         web.setWebChromeClient(new WebChromeClient() {
             @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback cb) {
                 if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) cb.invoke(origin, true, false);
@@ -146,6 +158,12 @@ public class MainActivity extends Activity {
                     startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); break;
                 case "stopAdhan":
                     startService(new Intent(this, AdhanService.class).setAction(AdhanService.ACT_STOP)); break;
+                case "downloadUpdate":
+                    String updateUrl = a.optString("url", "");
+                    if (!updateUrl.isEmpty()) {
+                        downloadAndInstallApk(updateUrl);
+                    }
+                    break;
                 default: break; // "status"
             }
         } catch (Exception ignored) { }
@@ -176,9 +194,12 @@ public class MainActivity extends Activity {
                 c.setReadTimeout(8000);
                 c.setUseCaches(false);
 
-                if (c.getResponseCode() != HttpURLConnection.HTTP_OK) return;
+                int httpCode = c.getResponseCode();
+                if (httpCode != HttpURLConnection.HTTP_OK) return;
 
-                BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"));
+                BufferedReader r = new BufferedReader(
+                        new InputStreamReader(c.getInputStream(), "UTF-8")
+                );
                 StringBuilder b = new StringBuilder();
                 String line;
                 while ((line = r.readLine()) != null) b.append(line);
@@ -187,18 +208,31 @@ public class MainActivity extends Activity {
                 JSONObject x = new JSONObject(b.toString());
                 long remoteCode = x.optLong("versionCode", 0);
                 String remoteName = x.optString("versionName", "");
-                String message = x.optString("message", "يتوفر إصدار جديد من رفيق المسلم");
-                String telegram = x.optString("telegram", "https://t.me/Rafiq_Almusilm");
+                String message = x.optString(
+                        "message",
+                        "يتوفر إصدار جديد من رفيق المسلم"
+                );
+                String apkUrl = x.optString("apkUrl", "");
 
                 long currentCode;
                 if (Build.VERSION.SDK_INT >= 28) {
-                    currentCode = getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
+                    currentCode = getPackageManager().getPackageInfo(
+                            getPackageName(), 0
+                    ).getLongVersionCode();
                 } else {
-                    currentCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+                    currentCode = getPackageManager().getPackageInfo(
+                            getPackageName(), 0
+                    ).versionCode;
                 }
 
-                if (remoteCode > currentCode) {
-                    runOnUiThread(() -> showUpdateDialog(remoteName, message, telegram));
+                if (remoteCode > currentCode && !apkUrl.isEmpty()) {
+                    runOnUiThread(() ->
+                            showUpdateDialog(
+                                    remoteName,
+                                    message,
+                                    apkUrl
+                            )
+                    );
                 }
             } catch (Exception ignored) {
             } finally {
@@ -207,11 +241,78 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    void showUpdateDialog(String versionName, String message, String telegram) {
+    void downloadAndInstallApk(String apkUrl) {
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                URL u = new URL(apkUrl);
+                c = (HttpURLConnection) u.openConnection();
+                c.setRequestMethod("GET");
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                c.setUseCaches(false);
+
+                int code = c.getResponseCode();
+                if (code != HttpURLConnection.HTTP_OK) return;
+
+                File apk = new File(getCacheDir(), "rafiq-muslim-update.apk");
+
+                try (InputStream in = c.getInputStream();
+                     FileOutputStream out = new FileOutputStream(apk)) {
+                    byte[] buffer = new byte[8192];
+                    int n;
+                    while ((n = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, n);
+                    }
+                    out.flush();
+                }
+
+                Uri apkUri = FileProvider.getUriForFile(
+                        this,
+                        getPackageName() + ".fileprovider",
+                        apk
+                );
+
+                Intent install = new Intent(Intent.ACTION_VIEW);
+                install.setDataAndType(
+                        apkUri,
+                        "application/vnd.android.package-archive"
+                );
+                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                install.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+                runOnUiThread(() -> {
+                    try {
+                        startActivity(install);
+                    } catch (Exception ignored) {
+                    }
+                });
+
+            } catch (Exception ignored) {
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
+    }
+
+    void setAppVersion() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(
+                    getPackageName(), 0
+            );
+            String versionName = info.versionName;
+            String js = "window.setAppVersion && window.setAppVersion("
+                    + JSONObject.quote(versionName) + ")";
+            web.evaluateJavascript(js, null);
+        } catch (Exception ignored) {
+        }
+    }
+
+    void showUpdateDialog(String versionName, String message, String apkUrl) {
         String js = "window.showUpdateDialog && window.showUpdateDialog("
                 + JSONObject.quote(versionName) + ","
                 + JSONObject.quote(message) + ","
-                + JSONObject.quote(telegram) + ")";
+                + JSONObject.quote(apkUrl) + ")";
         web.evaluateJavascript(js, null);
     }
 

@@ -319,6 +319,12 @@ share:'<path d="M12 3v12M8 7l4-4 4 4M5 12v7h14v-7"/>',
 heart:'<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>'};
 function ic(n){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+IC[n]+'</svg>';}
 function stars(){var r=S.rating||0,o="";for(var i=1;i<=5;i++)o+='<button class="star'+(i<=r?' on':'')+'" type="button" data-star="'+i+'" aria-label="'+i+' من 5"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></button>';return o;}
+var APP_VERSION="";
+function setAppVersion(v){
+  APP_VERSION=v||"";
+  var el=document.getElementById("app-version");
+  if(el)el.textContent=APP_VERSION?"الإصدار "+APP_VERSION:"";
+}
 function tile(n){return '<span class="ti">'+ic(n)+'</span>';}
 var TABS=[["home","الرئيسية","home"],["pray","الصلاة","pray"],["quran","القرآن","book"],["adhkar","الأذكار","beads"],["more","المزيد","more"]];
 var GRP={asma:"home",iman:"home",salat:"home",wudu:"home",wird:"home",cal:"home",surah:"quran",qmarks:"quran",sources:"more",dev:"more",govs:"pray",qibla:"more",beads:"more",stats:"more",set:"more"};
@@ -670,6 +676,31 @@ function initReader(){
   (document.fonts&&document.fonts.load?document.fonts.load('24px "'+S.qfont+'"',"\u0628").catch(function(){}):Promise.resolve()).then(function(){
     var pg=document.getElementById("rdp");if(!pg)return;RS.s=s;RS.pages=paginate(s,pg);
     if(RS.sb)RS.sb.destroy();RS.sb=attachScroll(pg,20);showPage(pageOf(a),0);});}
+function showUpdateDialog(versionName,message,apkUrl){
+  var m=mdl(
+    '<div class="card" style="text-align:center">'+
+    '<div style="font-size:42px;margin-bottom:6px">✨</div>'+
+    '<h2 style="margin-top:0">تحديث جديد</h2>'+
+    '<div class="mu" style="margin-bottom:12px">الإصدار '+versionName+'</div>'+
+    '<p style="line-height:1.9">'+message+'</p>'+
+    '<button class="sp-go" id="upd-go" type="button" style="width:100%;min-height:48px;margin-top:8px">تحديث الآن</button>'+
+    '<button class="btn" id="upd-later" type="button" style="width:100%;justify-content:center;margin-top:8px">لاحقًا</button>'+
+    '</div>',
+    "update"
+  );
+  document.getElementById("upd-go").addEventListener("click",function(){
+    var data={url:apkUrl};
+    if(window.AndroidNative&&AndroidNative.call){
+      AndroidNative.call("update","downloadUpdate",JSON.stringify(data));
+      var b=document.getElementById("upd-go");
+      if(b){b.disabled=true;b.textContent="جاري تحميل التحديث...";}
+    }
+  });
+  document.getElementById("upd-later").addEventListener("click",function(){
+    m.remove();
+  });
+}
+
 function mdl(html,k){var o=document.getElementById("modal");if(o)o.remove();var m=document.createElement("div");m.id="modal";m.dataset.k=k||"";m.setAttribute("role","dialog");m.setAttribute("aria-modal","true");m.innerHTML=html;document.body.appendChild(m);
   m.addEventListener("click",function(e){if(e.target===m||e.target.id==="md-x")m.remove();});return m;}
 function askPage(){var N=RS.pages.length,m=mdl('<div class="card"><h2 style="margin-top:0">انتقل إلى صفحة</h2><input type="number" id="pgin" min="1" max="'+N+'" inputmode="numeric" placeholder="من ١ إلى '+ad(N)+'" aria-label="رقم الصفحة" style="width:100%"><button class="sp-go" id="pggo" type="button" style="margin-top:12px;min-height:48px">انتقال</button></div>');
@@ -723,7 +754,7 @@ more:function(){
   grp("الأدوات",[["qibla","اتجاه القبلة","compass"],["beads","المسبحة","beads"],["wird","الورد اليومي","target"],["cal","التقويم الهجري","cal"],["govs","مواقيت المحافظات","pin"]])+
   grp("القرآن والأذكار",[["quran","القرآن الكريم","book"],["adhkar","الأذكار","spark"],["qmarks","علاماتي المرجعية والمفضلة","bm"]])+
   grp("التطبيق",[["stats","الإحصائيات","stats"],["set","الإعدادات","set"],["modal","لمحة عن التطبيق","info"],["sources","مصادر المحتوى","info"],["dev","المطور","crown"]])+
-  '<h2>حول التطبيق</h2><div class="card"><b>رفيق المسلم</b><div class="mu" style="margin:6px 0">جميع الحقوق محفوظة © 2026 رفيق المسلم</div><div class="mu" style="font-size:13px;line-height:1.9">جميع حقوق تصميم التطبيق وبرمجياته وواجهته وعلامته الخاصة محفوظة لأوليڤر.</div></div><div class="card" style="margin-top:10px"><div class="stars" role="group" aria-label="تقييم التطبيق">'+stars()+'</div></div>';
+  '<h2>حول التطبيق</h2><div class="card"><b>رفيق المسلم</b><div class="mu" style="margin:6px 0">جميع الحقوق محفوظة © 2026 رفيق المسلم</div><div class="mu" style="font-size:13px;line-height:1.9">جميع حقوق تصميم التطبيق وبرمجياته وواجهته وعلامته الخاصة محفوظة لأوليڤر.</div></div><div class="card" style="margin-top:10px"><div class="stars" role="group" aria-label="تقييم التطبيق">'+stars()+'</div><div id="app-version" class="mu" style="text-align:center;margin-top:8px;font-size:13px"></div></div>';
 },
 pray:function(){
   var a=S.prayers[dk()]||[],w=week(),L=S.loc,ts=L?dayTimes(0):[],rows="";
@@ -839,7 +870,7 @@ set:function(){
 }};
 
 function render(){if(S.tab!=="set")adhanStop();if(S.tab!=="qibla")stopCompass();if(S.tab!=="surah"&&RS.sb){RS.sb.destroy();RS.sb=null;}
-  document.getElementById("view").innerHTML=V[S.tab]();
+  document.getElementById("view").innerHTML=V[S.tab]();if(S.tab==="more"){var av=document.getElementById("app-version");if(av)av.textContent=APP_VERSION?"الإصدار "+APP_VERSION:"";}
   if(S.tab!=="home"&&S.tab!=="surah")document.getElementById("view").insertAdjacentHTML("afterbegin",'<button class="chip lb bk bkb" data-back="1" aria-label="رجوع">'+ic("back")+'</button>');
   if(S.tab==="surah")initReader();
   locQibla();
