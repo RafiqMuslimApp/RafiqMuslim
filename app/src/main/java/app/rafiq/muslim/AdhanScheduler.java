@@ -79,7 +79,7 @@ public class AdhanScheduler {
         prefs(c).edit().remove(K_ARMED).apply();
     }
 
-    public static void scheduleNext(Context c) {
+    public static synchronized void scheduleNext(Context c) {
         try {
             long now = System.currentTimeMillis();
             JSONObject best = null;

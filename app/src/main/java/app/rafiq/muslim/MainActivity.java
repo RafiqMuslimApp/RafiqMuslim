@@ -25,6 +25,15 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.content.pm.PackageInfo;
+import android.content.pm.Signature;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 
 import androidx.core.app.NotificationManagerCompat;
 import androidx.webkit.WebViewAssetLoader;
@@ -46,24 +55,31 @@ public class MainActivity extends Activity {
 
         PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
                 UpdateWorker.class,
-                15,
-                java.util.concurrent.TimeUnit.MINUTES
+                6,
+                java.util.concurrent.TimeUnit.HOURS
         ).setConstraints(constraints).build();
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
                 "rafiq_muslim_update_check",
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request
         );
     }
 
     static final String HOST = "appassets.androidplatform.net";
-    static final String UPDATE_URL = "https://raw.githubusercontent.com/RafiqMuslimApp/RafiqMuslim/main/update.json";
     static final int RQ_NOTIF = 11, RQ_LOC = 12;
     private WebView web;
     private String pendingNotifId;
     private GeolocationPermissions.Callback geoCb;
     private String geoOrigin;
+    // Update state (filled only from our own update.json fetch, never from JS input)
+    private volatile String pendingApkUrl = "", pendingSha256 = "";
+    private volatile long pendingCode = 0;
+    private boolean waitingInstallPerm;
+    private final java.util.concurrent.atomic.AtomicBoolean downloading = new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicBoolean checking = new java.util.concurrent.atomic.AtomicBoolean(false);
+    // Scheduling work (JSON parse + alarms) runs off the main thread so the UI never stutters.
+    private final java.util.concurrent.ExecutorService io = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle b) {
@@ -71,7 +87,13 @@ public class MainActivity extends Activity {
         AdhanService.channels(this);
         scheduleUpdateCheck();
         web = new WebView(this);
+        boolean night = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        int bg = night ? 0xFF0C1411 : 0xFFF3F6F4; // same as the app's --bg, avoids a white flash on launch
+        getWindow().getDecorView().setBackgroundColor(bg);
+        web.setBackgroundColor(bg);
         setContentView(web);
+        applyImmersive();
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -82,13 +104,17 @@ public class MainActivity extends Activity {
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) { return loader.shouldInterceptRequest(r.getUrl()); }
-            @Override public void onPageFinished(WebView v, String url) { super.onPageFinished(v, url); checkForUpdate(); }
+            @Override public void onPageFinished(WebView v, String url) {
+    super.onPageFinished(v, url);
+    setAppVersion();
+    v.postDelayed(() -> checkForUpdate(), 1000);
+}
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
-                if (HOST.equals(r.getUrl().getHost())) return false;
-                try { startActivity(new Intent(Intent.ACTION_VIEW, r.getUrl())); } catch (Exception ignored) { }
-                return true;
-            }
-        });
+                    if (HOST.equals(r.getUrl().getHost())) return false;
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, r.getUrl())); } catch (Exception ignored) { }
+                    return true;
+                }
+            });
         web.setWebChromeClient(new WebChromeClient() {
             @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback cb) {
                 if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) cb.invoke(origin, true, false);
@@ -111,12 +137,15 @@ public class MainActivity extends Activity {
 
     class Bridge {
         @JavascriptInterface
-        public void call(final String id, final String m, final String json) { runOnUiThread(() -> handle(id, m, json)); }
+        public void call(final String id, final String m, final String json) {
+            boolean heavy = "schedule".equals(m) || "cancelAll".equals(m) || "notesSchedule".equals(m) || "notesCancel".equals(m);
+            if (heavy) io.execute(() -> handle(id, m, json)); else runOnUiThread(() -> handle(id, m, json));
+        }
     }
 
     void resolve(String id, JSONObject o) {
         final String js = "window.__nb(" + JSONObject.quote(id) + "," + o + ")";
-        runOnUiThread(() -> web.evaluateJavascript(js, null));
+        runOnUiThread(() -> { if (web != null) web.evaluateJavascript(js, null); });
     }
 
     void handle(String id, String m, String json) {
@@ -146,6 +175,8 @@ public class MainActivity extends Activity {
                     startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); break;
                 case "stopAdhan":
                     startService(new Intent(this, AdhanService.class).setAction(AdhanService.ACT_STOP)); break;
+                case "downloadUpdate":
+                    startUpdate(); break;
                 default: break; // "status"
             }
         } catch (Exception ignored) { }
@@ -156,6 +187,7 @@ public class MainActivity extends Activity {
         JSONObject o = new JSONObject();
         try {
             o.put("native", true);
+            o.put("versionName", versionName());
             o.put("notif", NotificationManagerCompat.from(this).areNotificationsEnabled());
             AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
             o.put("exact", Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms());
@@ -165,55 +197,191 @@ public class MainActivity extends Activity {
         return o;
     }
 
+    /** Full-screen immersive mode: status bar and navigation bar hidden; a swipe from the edge shows them briefly. */
+    private void applyImmersive() {
+        android.view.Window w = getWindow();
+        if (Build.VERSION.SDK_INT >= 28) { // draw behind the camera cut-out too
+            android.view.WindowManager.LayoutParams lp = w.getAttributes();
+            lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            w.setAttributes(lp);
+        }
+        androidx.core.view.WindowInsetsControllerCompat c = androidx.core.view.WindowCompat.getInsetsController(w, w.getDecorView());
+        if (c == null) return;
+        c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applyImmersive(); // bars come back after keyboard/dialogs/notification shade: hide them again
+    }
+
+    String versionName() {
+        try {
+            String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return v == null ? "" : v;
+        } catch (Exception e) { return ""; }
+    }
+
+    /** Calls window.__upd.<call> in the web UI (progress / permission / error states of the update dialog). */
+    void upd(final String call) {
+        runOnUiThread(() -> { if (web != null) web.evaluateJavascript("window.__upd&&window.__upd." + call, null); });
+    }
+
+    /** Checks update.json once per page load. Shows the dialog only when a newer, installable version exists. */
     void checkForUpdate() {
+        if (!checking.compareAndSet(false, true)) return;
         new Thread(() -> {
-            HttpURLConnection c = null;
             try {
-                URL u = new URL(UPDATE_URL);
-                c = (HttpURLConnection) u.openConnection();
-                c.setRequestMethod("GET");
-                c.setConnectTimeout(8000);
-                c.setReadTimeout(8000);
-                c.setUseCaches(false);
-
-                if (c.getResponseCode() != HttpURLConnection.HTTP_OK) return;
-
-                BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), "UTF-8"));
-                StringBuilder b = new StringBuilder();
-                String line;
-                while ((line = r.readLine()) != null) b.append(line);
-                r.close();
-
-                JSONObject x = new JSONObject(b.toString());
+                JSONObject x = UpdateWorker.fetchUpdateJson();
+                if (x == null) return;
                 long remoteCode = x.optLong("versionCode", 0);
                 String remoteName = x.optString("versionName", "");
                 String message = x.optString("message", "يتوفر إصدار جديد من رفيق المسلم");
-                String telegram = x.optString("telegram", "https://t.me/Rafiq_Almusilm");
-
-                long currentCode;
-                if (Build.VERSION.SDK_INT >= 28) {
-                    currentCode = getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
-                } else {
-                    currentCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
-                }
-
-                if (remoteCode > currentCode) {
-                    runOnUiThread(() -> showUpdateDialog(remoteName, message, telegram));
-                }
+                String apkUrl = x.optString("apkUrl", "");
+                if (remoteCode <= UpdateWorker.currentVersionCode(this)) return;   // up to date: show nothing
+                if (!UpdateWorker.isTrustedApkUrl(apkUrl)) return;                 // not installable: show nothing
+                JSONArray notes = x.optJSONArray("notes");
+                if (notes == null) notes = x.optJSONArray("whatsNew");
+                if (notes == null) notes = new JSONArray();
+                pendingApkUrl = apkUrl;
+                pendingSha256 = x.optString("sha256", "").trim();
+                pendingCode = remoteCode;
+                final String js = "window.showUpdateDialog&&window.showUpdateDialog("
+                        + JSONObject.quote(remoteName) + "," + JSONObject.quote(message) + ","
+                        + JSONObject.quote(apkUrl) + "," + notes + ")";
+                runOnUiThread(() -> { if (web != null) web.evaluateJavascript(js, null); });
             } catch (Exception ignored) {
             } finally {
-                if (c != null) c.disconnect();
+                checking.set(false);
             }
         }).start();
     }
 
-    void showUpdateDialog(String versionName, String message, String telegram) {
-        String js = "window.showUpdateDialog && window.showUpdateDialog("
-                + JSONObject.quote(versionName) + ","
-                + JSONObject.quote(message) + ","
-                + JSONObject.quote(telegram) + ")";
+    /** "تحديث الآن": make sure installing from this app is allowed, then download. */
+    void startUpdate() {
+        if (pendingApkUrl.isEmpty()) { upd("error('none')"); return; }
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            waitingInstallPerm = true;
+            upd("permission()");
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+            } catch (Exception e) { waitingInstallPerm = false; upd("error('perm')"); }
+            return;
+        }
+        downloadAndInstallApk();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (waitingInstallPerm) { // returned from the "install unknown apps" settings screen
+            waitingInstallPerm = false;
+            if (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls()) downloadAndInstallApk();
+            else upd("error('perm')");
+        }
+    }
+
+    void downloadAndInstallApk() {
+        if (pendingApkUrl.isEmpty() || !UpdateWorker.isTrustedApkUrl(pendingApkUrl)) { upd("error('url')"); return; }
+        if (!downloading.compareAndSet(false, true)) return;
+        final String apkUrl = pendingApkUrl, wantSha = pendingSha256;
+        upd("progress(0)");
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            File dir = new File(getCacheDir(), "updates"), part = new File(dir, "update.apk.part"), apk = new File(dir, "rafiq-muslim-update.apk");
+            try {
+                dir.mkdirs();
+                part.delete(); apk.delete();
+                c = (HttpURLConnection) new URL(apkUrl).openConnection(); // https redirects (GitHub CDN) are followed
+                c.setRequestMethod("GET");
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                c.setUseCaches(false);
+                if (c.getResponseCode() != HttpURLConnection.HTTP_OK) { upd("error('http')"); return; }
+                long total = c.getContentLengthLong();
+                if (total > 300L * 1024 * 1024) { upd("error('size')"); return; }
+
+                java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+                long done = 0; int lastPct = -1;
+                try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
+                    byte[] buf = new byte[32768];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        out.write(buf, 0, n);
+                        md.update(buf, 0, n);
+                        done += n;
+                        if (done > 300L * 1024 * 1024) { upd("error('size')"); return; }
+                        if (total > 0) {
+                            int pct = (int) (done * 100 / total);
+                            if (pct != lastPct) { lastPct = pct; upd("progress(" + pct + ")"); }
+                        }
+                    }
+                    out.flush();
+                }
+                if (total > 0 && done != total) { upd("error('incomplete')"); return; }
+
+                if (!wantSha.isEmpty()) { // optional integrity check when update.json provides "sha256"
+                    StringBuilder hex = new StringBuilder();
+                    for (byte b : md.digest()) hex.append(String.format("%02x", b));
+                    if (!hex.toString().equalsIgnoreCase(wantSha)) { upd("error('hash')"); return; }
+                }
+                if (!part.renameTo(apk)) { upd("error('io')"); return; }
+                if (!verifyApk(apk)) { apk.delete(); upd("error('verify')"); return; }
+
+                Uri apkUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
+                final Intent install = new Intent(Intent.ACTION_VIEW)
+                        .setDataAndType(apkUri, "application/vnd.android.package-archive")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                upd("installing()");
+                runOnUiThread(() -> {
+                    try { startActivity(install); }
+                    catch (Exception e) { upd("error('install')"); }
+                });
+            } catch (Exception e) {
+                upd("error('net')");
+            } finally {
+                part.delete();
+                if (c != null) c.disconnect();
+                downloading.set(false);
+            }
+        }).start();
+    }
+
+    /** Same package, newer versionCode, same signing certificate as the installed app (the OS enforces it again). */
+    @SuppressWarnings("deprecation")
+    boolean verifyApk(File apk) {
+        try {
+            PackageManager pm = getPackageManager();
+            int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
+            PackageInfo a = pm.getPackageArchiveInfo(apk.getAbsolutePath(), flags);
+            if (a == null || !getPackageName().equals(a.packageName)) return false;
+            long code = Build.VERSION.SDK_INT >= 28 ? a.getLongVersionCode() : a.versionCode;
+            if (code <= UpdateWorker.currentVersionCode(this)) return false;
+            PackageInfo me = pm.getPackageInfo(getPackageName(), flags);
+            Signature[] x, y;
+            if (Build.VERSION.SDK_INT >= 28) {
+                if (a.signingInfo == null || me.signingInfo == null) return true; // unreadable: installer still enforces
+                x = a.signingInfo.getApkContentsSigners();
+                y = me.signingInfo.getApkContentsSigners();
+            } else { x = a.signatures; y = me.signatures; }
+            if (x == null || y == null) return true;
+            return new java.util.HashSet<>(java.util.Arrays.asList(x)).equals(new java.util.HashSet<>(java.util.Arrays.asList(y)));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    void setAppVersion() {
+        String js = "window.setAppVersion && window.setAppVersion(" + JSONObject.quote(versionName()) + ")";
         web.evaluateJavascript(js, null);
     }
 
-
+    @Override
+    protected void onDestroy() {
+        io.shutdown();
+        if (web != null) { web.removeJavascriptInterface("AndroidNative"); web.destroy(); web = null; }
+        super.onDestroy();
+    }
 }
