@@ -340,8 +340,8 @@ heart:'<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 
 function ic(n){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+IC[n]+'</svg>';}
 function stars(){var r=S.rating||0,o="";for(var i=1;i<=5;i++)o+='<button class="star'+(i<=r?' on':'')+'" type="button" data-star="'+i+'" aria-label="'+i+' من 5"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg></button>';return o;}
 var APP_VERSION="";
-function esc(t){return String(t==null?"":t).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
-function verHTML(){return APP_VERSION?'الإصدار <bdi dir="ltr">'+esc(APP_VERSION)+'</bdi>':"";}
+function esc(t){return String(t==null?"":t).replace(/[&<>"]/g,function(c){return {"&":"\&amp;","<":"\&lt;",">":"\&gt;","\"":"\&quot;"}[c];});}
+function verHTML(){return APP_VERSION?"الإصدار <bdi dir="ltr">"+esc(APP_VERSION)+"</bdi>":"";}
 function setAppVersion(v){
   APP_VERSION=v||"";
   var el=document.getElementById("app-version");
@@ -736,18 +736,19 @@ function updUI(st,v){
 }
 window.__upd={progress:function(p){updUI("dl",p);},permission:function(){updUI("perm");},installing:function(){updUI("inst");},error:function(c){updUI("err",c);}};
 function showUpdateDialog(versionName,message,apkUrl,notes){
-  var nl=(notes&&notes.length)?'<div style="font-weight:700;margin-top:12px;text-align:start">ما الجديد؟</div><ul class="upd-nt">'+notes.map(function(n){return '<li>'+esc(n)+'</li>';}).join("")+'</ul>':"";
+  var nl="";
+  if(Array.isArray(notes)&&notes.length){nl="<div class=\"mu\" style=\"margin-top:8px;line-height:1.8\"><b>أبرز التغييرات:</b><br>"+notes.map(function(x){return "• "+esc(x);}).join("<br>")+"</div>";}
   var m=mdl(
-    '<div class="card" style="text-align:center;background:linear-gradient(145deg,var(--sf),var(--sf2));border-color:var(--gb);box-shadow:0 18px 50px rgba(0,0,0,.35)">'+
-    '<span class="ti" style="width:56px;height:56px;border-radius:18px;margin:0 auto 10px">'+ic("spark")+'</span>'+
-    '<h2 style="margin:0 0 4px">تحديث جديد متاح</h2>'+
-    '<div class="mu" style="margin-bottom:10px">'+(versionName?'الإصدار <bdi dir="ltr">'+esc(versionName)+'</bdi>':'')+'</div>'+
-    '<p style="line-height:1.9;margin:0">'+esc(message)+'</p>'+nl+
-    '<div class="upd-pb" id="upd-pb"><i id="upd-bar"></i></div>'+
-    '<div class="mu" id="upd-st" style="font-size:13px;line-height:1.8;min-height:1.8em;margin-top:6px" role="status"></div>'+
-    '<button class="sp-go" id="upd-go" type="button" style="width:100%;min-height:48px;margin-top:8px">تحديث الآن</button>'+
-    '<button class="btn" id="upd-later" type="button" style="width:100%;justify-content:center;margin-top:8px">لاحقًا</button>'+
-    '</div>',
+    "<div class=\"card\" style=\"text-align:center\">"+
+    "<div style=\"font-size:42px;margin-bottom:6px\">✨</div>"+
+    "<h2 style=\"margin:0 0 4px\">تحديث جديد متاح</h2>"+
+    "<div class=\"mu\" style=\"margin-bottom:10px\">"+(versionName?"الإصدار <bdi dir=\"ltr\">"+esc(versionName)+"</bdi>":"")+"</div>"+
+    "<p style=\"line-height:1.9;margin:0\">"+esc(message)+"</p>"+nl+
+    "<div class=\"upd-pb\" id=\"upd-pb\"><i id=\"upd-bar\"></i></div>"+
+    "<div class=\"mu\" id=\"upd-st\" style=\"font-size:13px;line-height:1.8;min-height:1.8em;margin-top:6px\" role=\"status\"></div>"+
+    "<button class=\"sp-go\" id=\"upd-go\" type=\"button\" style=\"width:100%;min-height:48px;margin-top:8px\">تحديث الآن</button>"+
+    "<button class=\"btn\" id=\"upd-later\" type=\"button\" style=\"width:100%;justify-content:center;margin-top:8px\">لاحقًا</button>"+
+    "</div>",
     "update"
   );
   document.getElementById("upd-go").addEventListener("click",function(){
@@ -759,6 +760,33 @@ function showUpdateDialog(versionName,message,apkUrl,notes){
   document.getElementById("upd-later").addEventListener("click",function(){m.remove();});
 }
 window.showUpdateDialog=showUpdateDialog;
+    '<button class="sp-go" id="upd-go" type="button" style="width:100%;min-height:48px;margin-top:8px">تحديث الآن</button>'+
+    '<button class="btn" id="upd-later" type="button" style="width:100%;justify-content:center;margin-top:8px">لاحقًا</button>'+
+    '</div>',
+    "update"
+  );
+  document.getElementById("upd-go").addEventListener("click",function(){
+  var m=mdl(
+    "<div class=\"card\" style=\"text-align:center\">"+
+    "<div style=\"font-size:42px;margin-bottom:6px\">✨</div>"+
+    "<h2 style=\"margin:0 0 4px\">تحديث جديد متاح</h2>"+
+    "<div class=\"mu\" style=\"margin-bottom:10px\">"+(versionName?"الإصدار <bdi dir=\"ltr\">"+esc(versionName)+"</bdi>":"")+"</div>"+
+    "<p style=\"line-height:1.9;margin:0\">"+esc(message)+"</p>"+nl+
+    "<div class=\"upd-pb\" id=\"upd-pb\"><i id=\"upd-bar\"></i></div>"+
+    "<div class=\"mu\" id=\"upd-st\" style=\"font-size:13px;line-height:1.8;min-height:1.8em;margin-top:6px\" role=\"status\"></div>"+
+    "<button class=\"sp-go\" id=\"upd-go\" type=\"button\" style=\"width:100%;min-height:48px;margin-top:8px\">تحديث الآن</button>"+
+    "<button class=\"btn\" id=\"upd-later\" type=\"button\" style=\"width:100%;justify-content:center;margin-top:8px\">لاحقًا</button>"+
+    "</div>",
+    "update"
+  );
+  document.getElementById("upd-go").addEventListener("click",function(){
+    if(window.AndroidNative&&AndroidNative.call){
+      this.disabled=true;this.textContent="جاري التحضير...";
+      AndroidNative.call("update","downloadUpdate","{}");
+    }
+  });
+  document.getElementById("upd-later").addEventListener("click",function(){m.remove();});
+}
 
 function mdl(html,k){var o=document.getElementById("modal");if(o)o.remove();var m=document.createElement("div");m.id="modal";m.dataset.k=k||"";m.setAttribute("role","dialog");m.setAttribute("aria-modal","true");m.innerHTML=html;document.body.appendChild(m);
   m.addEventListener("click",function(e){if(e.target===m||e.target.id==="md-x")m.remove();});return m;}
@@ -813,7 +841,7 @@ more:function(){
   grp("الأدوات",[["qibla","اتجاه القبلة","compass"],["beads","المسبحة","beads"],["wird","الورد اليومي","target"],["cal","التقويم الهجري","cal"],["govs","مواقيت المحافظات","pin"]])+
   grp("القرآن والأذكار",[["quran","القرآن الكريم","book"],["adhkar","الأذكار","spark"],["qmarks","علاماتي المرجعية والمفضلة","bm"]])+
   grp("التطبيق",[["stats","الإحصائيات","stats"],["set","الإعدادات","set"],["modal","لمحة عن التطبيق","info"],["sources","مصادر المحتوى","info"],["dev","المطور","crown"]])+
-  '<h2>حول التطبيق</h2><div class="card"><b>رفيق المسلم</b><div class="mu" style="margin:6px 0">جميع الحقوق محفوظة © 2026 رفيق المسلم</div><div class="mu" style="font-size:13px;line-height:1.9">جميع حقوق تصميم التطبيق وبرمجياته وواجهته وعلامته الخاصة محفوظة لأوليڤر.</div></div><div class="card" style="margin-top:10px"><div class="stars" role="group" aria-label="تقييم التطبيق">'+stars()+'</div><div id="app-version" class="ver">'+verHTML()+'</div></div>';
+<div id="app-version" class="ver"></div>
 },
 pray:function(){
   var a=S.prayers[dk()]||[],w=week(),L=S.loc,ts=L?dayTimes(0):[],rows="";
@@ -929,11 +957,9 @@ set:function(){
 }};
 
 function render(){if(S.tab!=="set")adhanStop();if(S.tab!=="qibla")stopCompass();if(S.tab!=="surah"&&RS.sb){RS.sb.destroy();RS.sb=null;}
-  document.getElementById("view").innerHTML=V[S.tab]();if(S.tab==="more"){var av=document.getElementById("app-version");if(av)av.innerHTML=verHTML();}
-  if(S.tab!=="home"&&S.tab!=="surah")document.getElementById("view").insertAdjacentHTML("afterbegin",'<button class="chip lb bk bkb" data-back="1" aria-label="رجوع">'+ic("back")+'</button>');
-  if(S.tab==="surah")initReader();
-  locQibla();
-  if(S.tab!=="qibla")qOff=false;else if(S.loc&&!cmpH&&!qOff&&typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission!=="function")startCompass();
+document.getElementById("view").innerHTML=V[S.tab]();if(S.tab==="more"){var av=document.getElementById("app-version");if(av)av.innerHTML=verHTML();}
+  document.getElementById("view").innerHTML=V[S.tab]();if(S.tab==="more"){var av=document.getElementById("app-version");if(av)av.textContent=APP_VERSION?"الإصدار "+APP_VERSION:"";}
+document.getElementById("view").innerHTML=V[S.tab]();if(S.tab==="more"){var av=document.getElementById("app-version");if(av)av.innerHTML=verHTML();}
   document.getElementById("nav").innerHTML=TABS.map(function(t){return '<button class="'+((GRP[S.tab]||S.tab)===t[0]?'on':'')+'" data-go="'+t[0]+'">'+ic(t[2])+t[1]+'</button>';}).join("");
 }
 var NAV=[];
