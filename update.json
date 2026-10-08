@@ -1,12 +1,8 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4.0",
-  "message": "يتوفر إصدار جديد من رفيق المسلم",
-  "changes": [
-    "تحسينات في التطبيق",
-    "إصلاح بعض المشاكل",
-    "تحسين نظام التحديث التلقائي"
-  ],
-  "apkUrl": "https://github.com/RafiqMuslimApp/RafiqMuslim/releases/download/v1.4.0/app-release.apk",
-  "sha256": "2ef9c398ed9b159e0219af1e50aa9d7650150c1268af72e14912966952be6f9f"
+  "versionCode": 3,
+  "versionName": "1.2.0",
+  "message": "أنت تستخدم أحدث إصدار من رفيق المسلم",
+  "changes": [],
+  "apkUrl": "",
+  "telegram": "https://t.me/Rafiq_Almusilm"
 }
