@@ -1,15 +1,12 @@
 {
-"versionCode": 5,
-"versionName": "1.4.0",
-"message": "تحديث جديد متاح من رفيق المسلم",
-"changes": [
-"إضافة جزء جديد من لعبة من سيربح الجنة",
-"إصلاح صفحة الطقس",
-"إضافة المزيد من أصوات الشيوخ",
-"تحسين تصميم بطاقة الصلاة القادمة",
-"تحديث شعار التطبيق وإظهاره أعلى الواجهة",
-"إضافة جرس الإشعارات"
-],
-"apkUrl": "https://github.com/RafiqMuslimApp/RafiqMuslim/releases/download/v1.4.0/RafiqMuslim-v1.4.0.apk",
-"sha256": "c0be68da266e70705c5acd0419b2ed96ba69ccacf80bd7837bc3b58312cf2efb"
+  "versionCode": 6,
+  "versionName": "1.4.1",
+  "message": "يتوفر تحديث جديد من رفيق المسلم",
+  "notes": [
+    "تحسينات عامة في التطبيق",
+    "إصلاح بعض المشاكل",
+    "تحسين تجربة الاستخدام"
+  ],
+  "apkUrl": "https://github.com/RafiqMuslimApp/RafiqMuslim/releases/download/v1.4.1/RafiqMuslim-v1.4.1.apk",
+  "sha256": "4c638560228bb92030481329d53943481a96113250306c62e861fe6e4d37918d"
 }
