@@ -1,11 +1,17 @@
 {
-  "versionCode": 7,
-  "versionName": "1.4.2",
-  "message": "يتوفر تحديث جديد من رفيق المسلم",
+  "versionCode": 9,
+  "versionName": "1.4.3-Oliver.1",
+  "message": "يتوفر إصدار جديد من رفيق المسلم",
   "notes": [
-    "إضافة مزايا جديدة للتطبيق",
-    "إضافات وتحسينات جديدة لتجربة الاستخدام"
+    "تحسينات في الأداء",
+    "تحسينات في صفحات التطبيق",
+    "[جديد] إضافات جديدة"
   ],
-  "apkUrl": "https://github.com/RafiqMuslimApp/RafiqMuslim/releases/download/v1.4.2/RafiqMuslim-v1.4.2.apk",
-  "sha256": "6aed1e8184b19c0cd7d1840a0eff7a462d68d29cf909488590c53d39a0f57d56"
+  "changes": [
+    "تحسينات في التطبيق",
+    "إصلاح بعض المشاكل",
+    "تحسين نظام التحديث التلقائي"
+  ],
+  "apkUrl": "https://github.com/RafiqMuslimApp/RafiqMuslim/releases/download/v1.4.3/RafiqMuslim-v1.4.3.apk",
+  "sha256": "8de7334b4ccd7fb5b17be2a907fb033059db3bdda897786f7e3ac1fb32552d8c"
 }
